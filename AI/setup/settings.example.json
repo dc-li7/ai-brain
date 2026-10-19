@@ -1,18 +1,51 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(/usr/bin/sudo:*)",
+      "Bash(su:*)",
+      "Bash(/bin/su:*)",
+      "Bash(/usr/bin/su:*)",
+      "Bash(doas:*)",
+      "Bash(pkexec:*)",
+      "Bash(run0:*)",
+      "Bash(pacman -R:*)",
+      "Bash(gh repo delete:*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.password-store/**)"
+    ]
+  },
   "autoMemoryDirectory": "~/Mind/Memory/main",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Write|Edit|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/secrets-guard.sh" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/secrets-guard.sh"
+          }
+        ]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/sudo-block.sh" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/sudo-block.sh"
+          }
+        ]
       },
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/webfetch-warning.sh" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/webfetch-warning.sh"
+          }
+        ]
       }
     ]
   }

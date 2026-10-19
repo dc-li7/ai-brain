@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""memory-index: rebuild each Memory/<scope>/MEMORY.md from the memory files.
+
+Each machine used to keep the index its own way: one appended lines by hand
+(and drifted from the files), the other re-sorted the whole file by a score
+that changes with the date and usage counts. git merges the index with
+merge=union, so syncs never stopped, but every reshuffle met against an edit
+from the other machine left both versions of the line: the index slowly filled
+with duplicates and lines for deleted memories.
+
+This version sorts by things stored in the files only (pinned, type, file
+name), so every machine builds the same index from the same files. brain-sync
+runs it before each commit and again after each rebase.
+
+Usage: memory-index [--check]   (--check = report what would change, write nothing)
+Exit codes: 0 ok, 1 a file could not be read or written.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+BRAIN = Path(os.environ.get("BRAIN_DIR", Path.home() / "Mind"))
+NON_MEMORY = {"MEMORY.md", "README.md"}
+TYPE_ORDER = ["user", "feedback", "project", "reference"]
+# Files with these words in the name count as pinned unless their frontmatter
+# says otherwise (pinned: true/false). Add your own core-rule file names here.
+PIN_HINTS = ("sudo", "secret", "user_profile")
+# Claude only loads the start of MEMORY.md, so keep each line short.
+MAX_DESC = 200
+
+HEADER = (
+    "# Memory Index\n\n"
+    "_Built from the memory files by AI/setup/memory-index on every brain-sync. "
+    "★ = pinned. Lines added by hand are fine; the next sync rebuilds them from the files._\n"
+)
+
+
+def unquote(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        try:
+            return json.loads(value)  # JSON escapes cover what the memory files use
+        except json.JSONDecodeError:
+            return value[1:-1]
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def frontmatter(path: Path) -> dict:
+    """Read the few flat fields the index needs. Deliberately not a YAML parser:
+    a machine's system python may not have PyYAML, and a missing library must
+    not give the two machines different indexes. Nested keys (under metadata:)
+    land in fm["metadata"]."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    raw: dict = {}
+    meta: dict = {}
+    last = None  # top-level key whose value may continue on indented lines
+    for line in lines[1:]:
+        if line.strip() == "---":
+            fm = {k: unquote(v) for k, v in raw.items()}
+            fm["metadata"] = {k: unquote(v) for k, v in meta.items()}
+            return fm
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indented = line[0] in " \t"
+        if indented and last is not None:
+            # A long value wrapped onto the next lines, or a `>` / `|` block.
+            raw[last] = (raw[last] + " " + line.strip()).strip()
+            continue
+        key, sep, value = line.strip().partition(":")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if indented:
+            meta[key] = value
+            last = None
+        else:
+            raw[key] = "" if value in (">", ">-", ">+", "|", "|-", "|+") else value
+            # metadata: opens the nested block; any other key may wrap onto the next lines.
+            last = None if key == "metadata" else key
+    raise ValueError("frontmatter has no closing ---")
+
+
+def field(fm: dict, key: str):
+    # Fields may be nested under metadata: or flat at the top.
+    meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+    return meta.get(key, fm.get(key))
+
+
+def is_pinned(fm: dict, path: Path) -> bool:
+    v = field(fm, "pinned")
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1")
+    return any(h in path.stem.lower() for h in PIN_HINTS)
+
+
+def one_line(desc: str) -> str:
+    desc = " ".join(str(desc).split()).rstrip(".")
+    if len(desc) > MAX_DESC:
+        desc = desc[: MAX_DESC - 1].rstrip() + "…"
+    return desc
+
+
+def build(scope: Path, errors: list[str]) -> str:
+    groups: dict[str, list[str]] = {}
+    for p in sorted(scope.glob("*.md")):
+        if p.name in NON_MEMORY:
+            continue
+        try:
+            fm = frontmatter(p)
+        except ValueError as e:  # includes UnicodeDecodeError
+            # Still list the file so it stays findable; the caller reports the error.
+            errors.append(f"{scope.name}/{p.name}: {e}")
+            fm = {"description": "(frontmatter unreadable, fix this file)"}
+        mtype = str(field(fm, "type") or "other").lower()
+        key = "pinned" if is_pinned(fm, p) else (mtype if mtype in TYPE_ORDER else "other")
+        star = "★ " if key == "pinned" else ""
+        desc = one_line(fm.get("description") or fm.get("name") or p.stem)
+        groups.setdefault(key, []).append(f"- {star}[{p.name}]({p.name}) — {desc}")
+
+    out = [HEADER]
+    for key in ["pinned", *TYPE_ORDER, "other"]:
+        if groups.get(key):
+            out.append(f"\n## {key.capitalize()}\n")
+            out.extend(line + "\n" for line in groups[key])
+    return "".join(out)
+
+
+def main() -> int:
+    check = "--check" in sys.argv[1:]
+    memory = BRAIN / "Memory"
+    if not memory.is_dir():
+        print(f"memory-index: {memory} not found", file=sys.stderr)
+        return 1
+    errors: list[str] = []
+    for scope in sorted(d for d in memory.iterdir() if d.is_dir() and not d.name.startswith(".")):
+        target = scope / "MEMORY.md"
+        # A scope whose memories were all deleted still gets rebuilt (to an empty index).
+        if not target.exists() and not any(p.name not in NON_MEMORY for p in scope.glob("*.md")):
+            continue
+        try:
+            new = build(scope, errors)
+            old = target.read_text(encoding="utf-8") if target.exists() else ""
+            if new == old:
+                continue
+            if check:
+                print(f"would rebuild {target}")
+            else:
+                target.write_text(new, encoding="utf-8")
+                print(f"rebuilt {target} ({new.count(chr(10))} lines, {len(new.encode())} bytes)")
+        except OSError as e:
+            errors.append(f"{scope.name}: {e}")
+    for err in errors:
+        print(f"memory-index: {err}", file=sys.stderr)
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

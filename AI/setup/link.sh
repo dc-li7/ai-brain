@@ -61,6 +61,9 @@ done
 
 link "$BRAIN/AGENTS.md" "$HOME/.codex/AGENTS.md"
 link "$AI/setup/brain-sync" "$HOME/.local/bin/brain-sync"
+# The approval window the AI uses for sudo and anything else it is blocked from.
+link "$AI/setup/confirm-run" "$HOME/.local/bin/confirm-run"
+link "$AI/setup/confirm-open" "$HOME/.local/bin/confirm-open"
 
 echo "link.sh ($role): $linked new links, $skipped skipped as desktop-only, $moved existing items moved to ${backup}"
 [ "$moved" -gt 0 ] || rmdir "$backup" 2>/dev/null || true

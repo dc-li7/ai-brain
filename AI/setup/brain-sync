@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # brain-sync: sync the brain (~/Mind) with its copy on a USB stick.
-#   1. stage local changes and scan them for secrets (gitleaks, or a fallback check)
+#   1. rebuild the memory indexes, stage local changes and scan them for secrets
+#      (gitleaks, or a fallback check)
 #   2. commit them
-#   3. replay them on top of the stick's copy (git rebase)
+#   3. replay them on top of the stick's copy (git rebase), then rebuild the
+#      memory indexes again in case the stick brought new memories
 #   4. push the result back to the stick
 # Never force-pushes. On a conflict the rebase is aborted, so nothing is half-done.
 # The laptop runs this on plug-in (udiskie hook); the desktop runs it by hand.
@@ -31,7 +33,20 @@ if [ ! -d "$remote" ]; then
     git init -q --bare -b main "$remote" && say "Created brain copy on the stick" "$remote"
 fi
 
+# Each Memory/<scope>/MEMORY.md is rebuilt from the memory files (AI/setup/memory-index),
+# so every machine produces the same index and it can't drift from the files.
+# .gitattributes merges MEMORY.md with merge=union so it never stops a rebase; the
+# rebuild after the rebase then clears out any duplicate lines the union left.
+# An index problem never blocks a sync; it raises a notification instead.
+reindex() {
+    local err
+    if ! err=$(python3 -I "$BRAIN/AI/setup/memory-index" 2>&1 >/dev/null); then
+        say "Memory index problem" "${err:-memory-index failed}"
+    fi
+}
+
 # 1. Stage and scan
+reindex
 git add -A
 if ! git diff --cached --quiet; then
     if command -v gitleaks >/dev/null 2>&1; then
@@ -65,6 +80,10 @@ if git rev-parse -q --verify stick/main >/dev/null; then
         git rebase --abort >/dev/null 2>&1
         say "Brain sync conflict" "Both machines changed the same lines. Nothing was lost. Ask Claude: 'fix brain sync conflict'."
         exit 1
+    fi
+    reindex
+    if ! git diff --quiet -- 'Memory/*/MEMORY.md'; then
+        git add -- 'Memory/*/MEMORY.md' && git commit -q -m "sync: rebuild memory index"
     fi
 fi
 

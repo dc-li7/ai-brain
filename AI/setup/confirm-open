@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# confirm-open: open confirm-run in its own window, on whichever desktop this is.
+#   confirm-open <job-script>
+# Hyprland: its Lua config (0.56+) needs hyprctl eval to float a window.
+# KDE, GNOME and other stacking desktops float new windows already, so kitty
+# just opens one. Returns as soon as the window is open. The user says when
+# they're done, and the answer is in <job-script>.result (see confirm-run).
+set -euo pipefail
+IFS=$'\n\t'
+
+readonly SCRIPT_NAME="${0##*/}"
+
+die() {
+    echo "$SCRIPT_NAME: $*" >&2
+    exit 1
+}
+
+(( $# == 1 )) || die "usage: $SCRIPT_NAME <job-script>"
+job="$(realpath -- "$1")" || die "no such file: $1"
+[ -f "$job" ] || die "no such file: $job"
+runner="$(command -v confirm-run)" || die "confirm-run is not on PATH"
+command -v kitty >/dev/null 2>&1 || die "kitty is not installed"
+# Both paths go inside a Lua string below, so keep them plain.
+case "$job$runner" in
+    *[[:space:]\"\'\\]*) die "job path must not contain spaces, quotes or backslashes: $job" ;;
+esac
+
+rm -f -- "$job.result"
+# The window's kitty must not accept remote control, or a script could send it
+# keystrokes and answer yes on the user's behalf (some distros turn it on).
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+    hyprctl eval "hl.exec_cmd(\"kitty --class confirm-run -o allow_remote_control=no -o listen_on=none $runner $job\", { float = true, size = \"1000 480\", center = true })" >/dev/null
+else
+    # Here the window inherits this shell's environment, so drop the variables
+    # that make bash run a file of the caller's choosing at startup.
+    env -u BASH_ENV -u ENV kitty --detach --class confirm-run -o allow_remote_control=no -o listen_on=none -o remember_window_size=no \
+        -o initial_window_width=110c -o initial_window_height=30c "$runner" "$job"
+fi
+echo "$SCRIPT_NAME: window opened. When the user is done, read $job.result"

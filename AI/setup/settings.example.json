@@ -1,0 +1,19 @@
+{
+  "autoMemoryDirectory": "~/Mind/Memory/main",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/secrets-guard.sh" }]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/sudo-block.sh" }]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/webfetch-warning.sh" }]
+      }
+    ]
+  }
+}

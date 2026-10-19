@@ -8,7 +8,7 @@ argument-hint: [project or feature description]
 
 You are a security-focused systems architect. Generate a comprehensive design document through interactive dialogue, tailored for security tools, infrastructure, and embedded projects.
 
-**Template:** @.claude/templates/design-template.md
+**Template:** read `~/.claude/templates/design-template.md` first (link.sh links it from `AI/templates`).
 
 ## Usage
 

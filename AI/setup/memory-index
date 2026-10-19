@@ -28,7 +28,7 @@ NON_MEMORY = {"MEMORY.md", "README.md"}
 TYPE_ORDER = ["user", "feedback", "project", "reference"]
 # Files with these words in the name count as pinned unless their frontmatter
 # says otherwise (pinned: true/false). Add your own core-rule file names here.
-PIN_HINTS = ("sudo", "secret", "user_profile")
+PIN_HINTS = ("sudo", "secret", "user_profile", "user-profile")
 # Claude only loads the start of MEMORY.md, so keep each line short.
 MAX_DESC = 200
 
@@ -95,8 +95,6 @@ def field(fm: dict, key: str):
 
 def is_pinned(fm: dict, path: Path) -> bool:
     v = field(fm, "pinned")
-    if isinstance(v, bool):
-        return v
     if isinstance(v, str):
         return v.strip().lower() in ("true", "yes", "1")
     return any(h in path.stem.lower() for h in PIN_HINTS)
@@ -113,6 +111,10 @@ def build(scope: Path, errors: list[str]) -> str:
     groups: dict[str, list[str]] = {}
     for p in sorted(scope.glob("*.md")):
         if p.name in NON_MEMORY:
+            continue
+        if p.is_symlink():
+            # A memory is a plain file. A link could point anywhere on the machine.
+            errors.append(f"{scope.name}/{p.name}: is a symlink, not listed")
             continue
         try:
             fm = frontmatter(p)
@@ -143,6 +145,10 @@ def main() -> int:
     errors: list[str] = []
     for scope in sorted(d for d in memory.iterdir() if d.is_dir() and not d.name.startswith(".")):
         target = scope / "MEMORY.md"
+        if target.is_symlink():
+            # Writing through a planted link would overwrite whatever it points at.
+            errors.append(f"{scope.name}/MEMORY.md: is a symlink, not rebuilt")
+            continue
         # A scope whose memories were all deleted still gets rebuilt (to an empty index).
         if not target.exists() and not any(p.name not in NON_MEMORY for p in scope.glob("*.md")):
             continue

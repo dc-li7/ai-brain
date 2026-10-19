@@ -1,22 +1,47 @@
 #!/usr/bin/env bash
 # brain-sync: sync the brain (~/Mind) with its copy on a USB stick.
-#   1. rebuild the memory indexes, stage local changes and scan them for secrets
-#      (gitleaks, or a fallback check)
-#   2. commit them
-#   3. replay them on top of the stick's copy (git rebase), then rebuild the
-#      memory indexes again in case the stick brought new memories
-#   4. push the result back to the stick
+#   brain-sync            normal sync (this is what runs on plug-in)
+#   brain-sync --review   show incoming changes to code or rules, apply them only if you say yes
+#   brain-sync --init     create the brain's copy on a new stick (first time only)
+#
+#   1. rebuild the memory indexes, stage local changes, scan them for secrets, commit
+#   2. fetch the stick's copy. If it changes code or rules (AI/, AGENTS.md, CLAUDE.md,
+#      tool config like .claude/, Obsidian plugins, .mcp.json, .gitattributes), or adds
+#      a symlink anywhere, stop
+#      until someone runs --review. The stick is a
+#      plain USB drive: anyone holding it for a few minutes could plant code that
+#      this script would otherwise run, and the hooks would load, on the next plug-in.
+#   3. replay local commits on top of the stick's copy (git rebase), rebuild the indexes
+#   4. scan every commit about to leave, then push to the stick
 # Never force-pushes. On a conflict the rebase is aborted, so nothing is half-done.
-# The laptop runs this on plug-in (udiskie hook); the desktop runs it by hand.
 set -uo pipefail
 
 BRAIN="${BRAIN_DIR:-$HOME/Mind}"
 LABEL="${BRAIN_STICK_LABEL:-BRAIN-STICK}"
+# Incoming changes under these paths need a human look before they go live: they are
+# code, rules, or config that a tool runs or obeys (Obsidian plugins are JavaScript that
+# runs when the vault opens, .claude holds project hooks, .mcp.json the MCP servers
+# Claude starts). The rest of .obsidian changes in normal use, so it isn't gated.
+PROTECTED=(AI AGENTS.md CLAUDE.md CLAUDE.local.md .claude .codex .mcp.json .envrc
+           .obsidian/plugins .obsidian/community-plugins.json
+           .gitattributes .gitignore .gitmodules ':(glob)**/.gitattributes' ':(glob)**/.gitignore')
+
+mode=sync
+case "${1:-}" in
+    "") ;;
+    --review) mode=review ;;
+    --init) mode=init ;;
+    *) echo "usage: brain-sync [--review | --init]" >&2; exit 2 ;;
+esac
 
 say() {  # say <title> [body]
     echo "brain-sync: $1${2:+ - $2}"
     command -v notify-send >/dev/null 2>&1 && notify-send -a "Brain" "$1" "${2:-}" || true
 }
+
+# git with the settings that could run a program switched off for this run, since
+# the sync runs unattended. (The repo's own config is also checked below.)
+g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
 
 mnt="${BRAIN_STICK_DIR:-}"   # override for testing
 [ -n "$mnt" ] || mnt=$(findmnt -rn -S "LABEL=$LABEL" -o TARGET 2>/dev/null | head -n1)
@@ -25,13 +50,67 @@ if [ ! -d "$mnt" ]; then say "Stick not found" "Plug in $LABEL, then run brain-s
 remote="$mnt/brain.git"
 
 cd "$BRAIN" || { say "Brain folder missing" "$BRAIN"; exit 1; }
-git rev-parse --git-dir >/dev/null 2>&1 || { say "Not a git repo" "$BRAIN"; exit 1; }
+gitdir=$(g rev-parse --absolute-git-dir 2>/dev/null) || { say "Not a git repo" "$BRAIN"; exit 1; }
+
+# Many git settings make git run a program (filters, fsmonitor, remote.*.uploadpack,
+# includes...), and the sync runs unattended. So the brain's own git config may only
+# hold settings known to be harmless; anything else stops the sync.
+if ! cfg=$(g config --local --name-only --list 2>/dev/null); then
+    say "Sync stopped: can't read the brain's git config" "Check $gitdir/config"
+    exit 1
+fi
+unexpected=$(printf '%s\n' "$cfg" | grep -vE '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks)|remote\.[^.]+\.(url|fetch)|branch\..+\.(remote|merge)|user\.(name|email|useconfigonly)|init\.defaultbranch|)$' | sort -u || true)
+if [ -n "$unexpected" ]; then
+    say "Sync stopped: unexpected git settings" "The brain's .git/config sets: $(echo "$unexpected" | tr '\n' ' '). Some settings make git run programs. Check with: git -C $BRAIN config --local --list"
+    exit 1
+fi
+
+# One sync at a time (plug-in and a manual run can overlap).
+exec 9>"$gitdir/brain-sync.lock"
+flock -n 9 || { say "Already syncing" "Another brain-sync is running."; exit 1; }
+
+# The brain only ever goes to a local path (the stick), never to GitHub or any server.
+# Reinstalled on every run so it can't quietly go missing. `git push --no-verify` skips
+# it, which is why AGENTS.md also says so in words.
+hook="$gitdir/hooks/pre-push"
+mkdir -p "$gitdir/hooks"
+cat > "$hook.new" <<'HOOK'
+#!/bin/sh
+# Installed by brain-sync: the brain only syncs to a local path (the USB stick).
+case "$2" in
+    /*|file://*) exit 0 ;;
+esac
+echo "pre-push: refusing to push the brain to $2. It only syncs to the stick." >&2
+exit 1
+HOOK
+chmod +x "$hook.new" && mv -f "$hook.new" "$hook"
 
 # The stick mounts at a different path on each machine, so (re)point the remote every time.
-if git remote get-url stick >/dev/null 2>&1; then git remote set-url stick "$remote"; else git remote add stick "$remote"; fi
-if [ ! -d "$remote" ]; then
-    git init -q --bare -b main "$remote" && say "Created brain copy on the stick" "$remote"
+if g remote get-url stick >/dev/null 2>&1; then g remote set-url stick "$remote"; else g remote add stick "$remote"; fi
+if [ "$mode" = init ]; then
+    if [ -e "$remote" ]; then say "Already set up" "$remote exists. Run brain-sync without --init."; exit 1; fi
+    g init -q --bare -b main "$remote" || { say "Could not create $remote" "Is the stick read-only or full?"; exit 1; }
+    say "Created brain copy on the stick" "$remote"
+elif [ ! -d "$remote" ]; then
+    # Never set up a stick by itself: any stick with the right label would get a full copy.
+    say "No brain on this stick" "Nothing was copied. First time with this stick? Run: brain-sync --init"
+    exit 1
 fi
+
+# gitleaks 8.19+ (the `git` subcommand). Older versions fall back to the basic check.
+gl=()
+if command -v gitleaks >/dev/null 2>&1; then gl=(gitleaks)
+elif command -v mise >/dev/null 2>&1 && mise which gitleaks >/dev/null 2>&1; then gl=(mise exec -- gitleaks)
+fi
+if [ ${#gl[@]} -gt 0 ] && ! "${gl[@]}" git --help >/dev/null 2>&1; then
+    say "gitleaks is too old" "brain-sync needs gitleaks 8.19 or newer; using the basic check for now."
+    gl=()
+elif [ ${#gl[@]} -eq 0 ]; then
+    say "gitleaks not installed" "Using the basic secret check only, which knows a few token formats. Install gitleaks."
+fi
+basic_check() {  # stdin: a diff. Exit 0 if it looks like it holds a key or token.
+    grep -qE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_|sk-[A-Za-z0-9_-]{20,}|xox[abp]-|AKIA[0-9A-Z]{16})'
+}
 
 # Each Memory/<scope>/MEMORY.md is rebuilt from the memory files (AI/setup/memory-index),
 # so every machine produces the same index and it can't drift from the files.
@@ -44,52 +123,112 @@ reindex() {
         say "Memory index problem" "${err:-memory-index failed}"
     fi
 }
-
-# 1. Stage and scan
-reindex
-git add -A
-if ! git diff --cached --quiet; then
-    if command -v gitleaks >/dev/null 2>&1; then
-        scan=(gitleaks git --staged --redact --no-banner .)
-    elif command -v mise >/dev/null 2>&1 && mise which gitleaks >/dev/null 2>&1; then
-        scan=(mise exec -- gitleaks git --staged --redact --no-banner .)
-    else
-        scan=()
-    fi
-    if [ ${#scan[@]} -gt 0 ]; then
-        if ! "${scan[@]}" >/dev/null 2>&1; then
-            git reset -q
-            say "Sync stopped: possible secret" "gitleaks flagged a staged change. Run: cd ~/Mind && gitleaks git --staged --redact ."
-            exit 1
-        fi
-    elif git diff --cached -U0 | grep -qE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_|sk-[A-Za-z0-9_-]{20,}|xox[abp]-|AKIA[0-9A-Z]{16})'; then
-        git reset -q
-        say "Sync stopped: possible secret" "A staged change looks like a key or token (gitleaks not installed, basic check used)."
+commit() {  # commit <message>
+    if ! g commit -q -m "$1"; then
+        say "Sync stopped: commit failed" "Nothing was pushed. If git doesn't know who you are yet: git -C $BRAIN config user.name 'Your Name' && git -C $BRAIN config user.email you@example.com"
         exit 1
     fi
-    # 2. Commit
-    git commit -q -m "sync: $(hostname)/$USER $(date '+%Y-%m-%d %H:%M')"
+}
+
+# 1. Stage, scan, commit
+reindex
+g add -A
+if ! g diff --cached --quiet; then
+    if [ ${#gl[@]} -gt 0 ]; then
+        flagged=0; "${gl[@]}" git --staged --redact --no-banner . >/dev/null 2>&1 || flagged=1
+    else
+        # Process substitution, not a pipe: with pipefail, grep -q quitting early makes
+        # the pipe report failure and a real match would be missed.
+        flagged=0; basic_check < <(g diff --cached -U0 --no-ext-diff --no-textconv) && flagged=1
+    fi
+    if [ "$flagged" = 1 ]; then
+        g reset -q
+        say "Sync stopped: possible secret" "A change looks like it holds a key or token. Nothing was committed. To see it: cd $BRAIN && gitleaks dir --redact ."
+        exit 1
+    fi
+    commit "sync: $(hostname)/$USER $(date '+%Y-%m-%d %H:%M')"
 fi
 
-# 3. Bring in the stick's changes
-git fetch -q stick 2>/dev/null
+# 2. Fetch the stick's copy, and gate changes to code and rules
+if ! g fetch -q stick 2>/dev/null; then
+    say "Could not read the stick's copy" "$remote. Nothing was changed."
+    exit 1
+fi
 incoming=0
-if git rev-parse -q --verify stick/main >/dev/null; then
-    incoming=$(git rev-list --count HEAD..stick/main)
-    if ! git rebase -q stick/main >/dev/null 2>&1; then
-        git rebase --abort >/dev/null 2>&1
-        say "Brain sync conflict" "Both machines changed the same lines. Nothing was lost. Ask Claude: 'fix brain sync conflict'."
+if g rev-parse -q --verify stick/main >/dev/null; then
+    if ! base=$(g merge-base HEAD stick/main 2>/dev/null); then
+        say "Sync stopped: unrelated history" "The brain on this stick doesn't share history with $BRAIN. Is it the right stick? Nothing was changed."
+        exit 1
+    fi
+    incoming=$(g rev-list --count HEAD..stick/main)
+    # If the comparison itself fails, stop: an empty answer must never mean "nothing changed".
+    if ! changed=$(g diff --name-only --no-ext-diff "$base" stick/main -- "${PROTECTED[@]}") \
+        || ! raw=$(g diff --raw --no-renames --no-abbrev --no-ext-diff "$base" stick/main); then
+        say "Sync stopped: couldn't compare with the stick" "Nothing was changed. The stick's copy may be damaged."
+        exit 1
+    fi
+    # A symlink anywhere (mode 120000) also needs a look: a link in Memory/ or the
+    # notes could point a later write at any file on the machine.
+    links=$(printf '%s\n' "$raw" | awk '$2 == "120000" { sub(/^[^\t]*\t/, ""); print }')
+    mapfile -t linkpaths < <(printf '%s\n' "$links" | sed '/^$/d')
+    changed=$(printf '%s\n%s\n' "$changed" "$links" | sed '/^$/d' | sort -u)
+    if [ -n "$changed" ]; then
+        n=$(printf '%s\n' "$changed" | wc -l)
+        if [ "$mode" != review ]; then
+            say "Sync paused: code or rules changed elsewhere" "$n file(s) in AI/ or the rulebooks changed on the stick. Nothing was applied. To look and decide: brain-sync --review"
+            exit 1
+        fi
+        view=$(mktemp)
+        trap 'rm -f "$view"' EXIT
+        {
+            echo "Changes to code and rules coming from the stick ($n file(s)):"
+            printf '%s\n' "$changed" | sed 's/^/  /'
+            echo
+            g --no-pager log --format='%h %ad %an: %s' --date=short "$base..stick/main" -- "${PROTECTED[@]}"
+            echo
+            g --no-pager diff --no-color --no-ext-diff --no-textconv "$base" stick/main -- "${PROTECTED[@]}" "${linkpaths[@]}"
+        } | cat -v > "$view"
+        # cat -v turns control characters into visible ^X text, and the pager ignores
+        # LESS (which may hold -R) and LESSOPEN (which can swap in other content).
+        LESS= LESSOPEN= LESSCLOSE= less -- "$view" </dev/tty >/dev/tty
+        printf 'Apply these %s change(s)? Type yes to apply, anything else stops: ' "$n" >/dev/tty
+        read -r answer </dev/tty || answer=""
+        if [ "$answer" != yes ]; then
+            say "Nothing applied" "The stick's changes are still waiting. Run brain-sync --review again when ready."
+            exit 1
+        fi
+        command -v logger >/dev/null 2>&1 && logger -t brain-sync "review approved: $n file(s), $base..$(g rev-parse --short stick/main)"
+    fi
+
+    # 3. Replay local commits on top
+    if ! g rebase -q stick/main >/dev/null 2>&1; then
+        g rebase --abort >/dev/null 2>&1
+        say "Brain sync conflict" "Both machines changed the same lines. Nothing was lost; see 'If a sync stops' in the README."
         exit 1
     fi
     reindex
-    if ! git diff --quiet -- 'Memory/*/MEMORY.md'; then
-        git add -- 'Memory/*/MEMORY.md' && git commit -q -m "sync: rebuild memory index"
+    if ! g diff --quiet --no-ext-diff -- 'Memory/*/MEMORY.md'; then
+        g add -- 'Memory/*/MEMORY.md' && commit "sync: rebuild memory index"
     fi
 fi
 
-# 4. Push back
-outgoing=$(git rev-list --count "stick/main..HEAD" 2>/dev/null || git rev-list --count HEAD)
-if ! git push -q stick HEAD:main 2>/dev/null; then
+# 4. Scan everything about to leave (including commits made outside brain-sync), then push
+range=HEAD
+g rev-parse -q --verify stick/main >/dev/null && range="stick/main..HEAD"
+outgoing=$(g rev-list --count "$range")
+if [ "$outgoing" -gt 0 ]; then
+    flagged=0
+    if [ ${#gl[@]} -gt 0 ]; then
+        "${gl[@]}" git --log-opts="$range" --redact --no-banner . >/dev/null 2>&1 || flagged=1
+    else
+        basic_check < <(g log -p --no-ext-diff --no-textconv --format= "$range") && flagged=1
+    fi
+    if [ "$flagged" = 1 ]; then
+        say "Sync stopped: possible secret in a commit" "A commit about to go to the stick looks like it holds a key or token. Nothing was pushed. To see it: cd $BRAIN && gitleaks git --log-opts=$range --redact ."
+        exit 1
+    fi
+fi
+if ! g push -q stick HEAD:main 2>/dev/null; then
     say "Brain sync failed" "Could not write to the stick. Is it read-only or full?"
     exit 1
 fi

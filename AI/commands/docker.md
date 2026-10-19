@@ -1,6 +1,5 @@
 ---
 description: Docker/Compose container management
-allowed-tools: Bash(docker:*), Bash(docker compose:*)
 argument-hint: [action]
 ---
 

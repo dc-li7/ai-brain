@@ -14,7 +14,10 @@
       "Read(~/.ssh/**)",
       "Read(~/.claude/.credentials.json)",
       "Read(~/.config/gh/hosts.yml)",
-      "Read(~/.password-store/**)"
+      "Read(~/.password-store/**)",
+      "Bash(gh repo create:*)",
+      "Bash(wtype:*)",
+      "Bash(ydotool:*)"
     ]
   },
   "autoMemoryDirectory": "~/Mind/Memory/main",

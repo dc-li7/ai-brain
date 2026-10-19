@@ -1,6 +1,6 @@
 ---
 description: Workflow optimization analyzer
-allowed-tools: Read, Glob, Grep, Bash(ls:*), Bash(git log:*)
+allowed-tools: Read, Glob, Grep, Bash(ls:*)
 argument-hint: [prompt]
 ---
 

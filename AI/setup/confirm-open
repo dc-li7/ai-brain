@@ -20,20 +20,25 @@ job="$(realpath -- "$1")" || die "no such file: $1"
 [ -f "$job" ] || die "no such file: $job"
 runner="$(command -v confirm-run)" || die "confirm-run is not on PATH"
 command -v kitty >/dev/null 2>&1 || die "kitty is not installed"
-# Both paths go inside a Lua string below, so keep them plain.
+# Both paths end up in a Lua string and then a shell command line on Hyprland, so
+# allow only plain path characters.
 case "$job$runner" in
-    *[[:space:]\"\'\\]*) die "job path must not contain spaces, quotes or backslashes: $job" ;;
+    *[!A-Za-z0-9._/-]*) die "job path may only use letters, digits and . _ / - : $job" ;;
 esac
 
 rm -f -- "$job.result"
 # The window's kitty must not accept remote control, or a script could send it
 # keystrokes and answer yes on the user's behalf (some distros turn it on).
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
-    hyprctl eval "hl.exec_cmd(\"kitty --class confirm-run -o allow_remote_control=no -o listen_on=none $runner $job\", { float = true, size = \"1000 480\", center = true })" >/dev/null
+    if ! out=$(hyprctl eval "hl.exec_cmd(\"env -u BASH_ENV -u ENV kitty --class confirm-run -o allow_remote_control=no -o listen_on=none $runner $job\", { float = true, size = \"1000 480\", center = true })" 2>&1); then
+        die "Hyprland didn't open the window: $out"
+    fi
 else
     # Here the window inherits this shell's environment, so drop the variables
     # that make bash run a file of the caller's choosing at startup.
-    env -u BASH_ENV -u ENV kitty --detach --class confirm-run -o allow_remote_control=no -o listen_on=none -o remember_window_size=no \
-        -o initial_window_width=110c -o initial_window_height=30c "$runner" "$job"
+    if ! env -u BASH_ENV -u ENV kitty --detach --class confirm-run -o allow_remote_control=no -o listen_on=none \
+        -o remember_window_size=no -o initial_window_width=110c -o initial_window_height=30c "$runner" "$job"; then
+        die "kitty didn't open the window (is a desktop session running?)"
+    fi
 fi
 echo "$SCRIPT_NAME: window opened. When the user is done, read $job.result"

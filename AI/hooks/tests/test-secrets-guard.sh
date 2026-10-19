@@ -239,6 +239,24 @@ for _policy_file in \
     "$HOME/.claude/settings.local.json" \
     "$HOME/Mind/AI/hooks/secrets-guard.sh" \
     "$HOME/Mind/AI/setup/brain-sync" \
+    "$HOME/Mind/AI/setup/confirm-run" \
+    "$HOME/Mind/AGENTS.md" \
+    "$HOME/Mind/CLAUDE.md" \
+    "$HOME/.claude/CLAUDE.md" \
+    "$HOME/Mind/AI/commands/sys.md" \
+    "$HOME/Mind/AI/agents/coder.md" \
+    "$HOME/Mind/AI/skills/sudo-safe/SKILL.md" \
+    "$HOME/Mind/AI/templates/git-template.md" \
+    "$HOME/.claude/commands/git.md" \
+    "$HOME/Mind/.gitattributes" \
+    "$HOME/Mind/.obsidian/plugins/x/main.js" \
+    "$HOME/Mind/.claude/settings.local.json" \
+    "$HOME/Mind/.git/config" \
+    "$HOME/Mind/.git/hooks/pre-push" \
+    /home/alice/projects/myapp/.git/config \
+    "$HOME/.claude.json" \
+    /home/alice/projects/myapp/.mcp.json \
+    "$HOME/.codex/config.toml" \
     /home/alice/projects/myapp/.claude/settings.local.json
 do
     TOTAL=$((TOTAL + 1))
@@ -248,6 +266,25 @@ do
         PASS=$((PASS + 1))
     else
         printf "${RED}FAIL${NC} *** CRITICAL *** %s is WRITABLE via Claude Code (exit %d) — an injection could disarm the guards!\n" "$_policy_file" "$_rc"
+        FAIL=$((FAIL + 1))
+    fi
+done
+
+echo "--- the AI must still be able to save memories and notes ---"
+for _ok_file in \
+    "$HOME/Mind/Memory/main/feedback-example.md" \
+    "$HOME/Mind/Memory/main/MEMORY.md" \
+    "$HOME/Mind/Log/2026-10-19.md" \
+    "$HOME/Mind/Projects/Example.md" \
+    "$HOME/Mind/Inbox/note.md"
+do
+    TOTAL=$((TOTAL + 1))
+    _rc=$(printf '{"tool_input":{"file_path":"%s"}}' "$_ok_file" | "$HOOK" >/dev/null 2>&1; echo $?)
+    if [ "$_rc" -eq 0 ]; then
+        printf '%sPASS%s [exit 0] still writable: %s\n' "$GREEN" "$NC" "$_ok_file"
+        PASS=$((PASS + 1))
+    else
+        printf "${RED}FAIL${NC} %s is blocked (exit %d) but the AI needs to write it\n" "$_ok_file" "$_rc"
         FAIL=$((FAIL + 1))
     fi
 done

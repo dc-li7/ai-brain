@@ -8,7 +8,7 @@ argument-hint: [initial-description]
 
 Interactive command generator that guides through creating new slash commands via structured dialogue.
 
-**Template:** @.claude/templates/command-template.md
+**Template:** read `~/.claude/templates/command-template.md` first (link.sh links it from `AI/templates`).
 
 ## Usage
 

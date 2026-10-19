@@ -1,6 +1,6 @@
 ---
 description: System and infrastructure management
-allowed-tools: Bash(df:*), Bash(du:*), Bash(free:*), Bash(fastfetch:*), Bash(sensors:*), Bash(nvidia-smi:*), Bash(pacman -Q:*), Bash(pacman -Ss:*), Bash(systemctl status:*), Bash(systemctl list-units:*), Bash(systemctl --failed), Bash(journalctl:*), Bash(virsh list:*), Bash(virsh dominfo:*)
+allowed-tools: Bash(df:*), Bash(du:*), Bash(free:*), Bash(sensors:*), Bash(nvidia-smi:*), Bash(pacman -Q:*), Bash(pacman -Ss:*), Bash(systemctl status:*), Bash(systemctl list-units:*), Bash(systemctl --failed), Bash(journalctl:*), Bash(virsh list:*), Bash(virsh dominfo:*)
 argument-hint: [action]
 ---
 
@@ -30,7 +30,7 @@ df -h --output=source,size,used,avail,pcent,target | grep -v tmpfs
 du -sh ./* 2>/dev/null | sort -rh | head -20
 ```
 
-**Storage health:**
+**Storage health (smartctl needs root: hand it over with confirm-open):**
 ```bash
 smartctl -a /dev/nvme0n1 2>/dev/null | grep -E "Critical|Temperature|Available Spare|Percentage Used"
 smartctl -a /dev/sda 2>/dev/null | grep -E "Reallocated|Current_Pending|Temperature|Power_On"
@@ -43,17 +43,17 @@ smartctl -a /dev/sda 2>/dev/null | grep -E "Reallocated|Current_Pending|Temperat
 pacman -Ss [query]
 ```
 
-**Install (confirm first):**
+**Install (needs root: hand it over with confirm-open):**
 ```bash
 pacman -S [package]
 ```
 
-**AUR install (confirm first):**
+**AUR install (needs root: hand it over with confirm-open):**
 ```bash
 paru -S [package]
 ```
 
-**Update system (confirm first):**
+**Update system (needs root: hand it over with confirm-open):**
 ```bash
 pacman -Syu
 ```
@@ -80,7 +80,7 @@ systemctl status [service]
 systemctl list-units --type=service --state=running
 ```
 
-**Start/stop/restart (confirm first):**
+**Start/stop/restart (needs root: hand it over with confirm-open):**
 ```bash
 systemctl restart [service]
 ```

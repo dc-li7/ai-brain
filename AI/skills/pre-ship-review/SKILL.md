@@ -77,7 +77,7 @@ All tests should pass. "These tests are flaky" is a signal that needs addressing
 ### 5. Secret scan
 
 ```bash
-gitleaks protect --staged    # scans staged files only
+gitleaks git --staged        # scans staged files only (gitleaks 8.19+)
 # or for the whole tree:
 gitleaks detect --no-banner
 ```
@@ -99,9 +99,9 @@ Some projects have their own gate. Respect it:
 
 ### 7. Git hygiene
 
-- Commit message follows your format: `[TICKET] <type>(<scope>): <summary>` (see global CLAUDE.md)
+- Commit message follows `<type>(<scope>): <summary>` (see AGENTS.md)
 - Branch name follows format: `<prefix>/<scope>/<description>`
-- Not committing to a protected branch: `main`, `master`, `release/*`, `hotfix/*`, `prod/*`
+- Not committing to a protected branch: `main`, `master`, `release/*`, `prod/*`
 - No `--no-verify` / `--force` unless explicitly asked
 
 ## Output format

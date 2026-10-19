@@ -8,7 +8,7 @@ argument-hint: [initial-description]
 
 Interactive agent generator that analyzes requirements and creates autonomous agents with decision trees, error recovery, and intelligent tool selection.
 
-**Template:** @.claude/templates/agent-template.md
+**Template:** read `~/.claude/templates/agent-template.md` first (link.sh links it from `AI/templates`).
 
 ## Usage
 

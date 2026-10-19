@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# brain-sync: sync the brain (~/Mind) with its copy on a USB stick.
+#   1. stage local changes and scan them for secrets (gitleaks, or a fallback check)
+#   2. commit them
+#   3. replay them on top of the stick's copy (git rebase)
+#   4. push the result back to the stick
+# Never force-pushes. On a conflict the rebase is aborted, so nothing is half-done.
+# The laptop runs this on plug-in (udiskie hook); the desktop runs it by hand.
+set -uo pipefail
+
+BRAIN="${BRAIN_DIR:-$HOME/Mind}"
+LABEL="${BRAIN_STICK_LABEL:-BRAIN-STICK}"
+
+say() {  # say <title> [body]
+    echo "brain-sync: $1${2:+ - $2}"
+    command -v notify-send >/dev/null 2>&1 && notify-send -a "Brain" "$1" "${2:-}" || true
+}
+
+mnt="${BRAIN_STICK_DIR:-}"   # override for testing
+[ -n "$mnt" ] || mnt=$(findmnt -rn -S "LABEL=$LABEL" -o TARGET 2>/dev/null | head -n1)
+[ -n "$mnt" ] || mnt="/run/media/$USER/$LABEL"
+if [ ! -d "$mnt" ]; then say "Stick not found" "Plug in $LABEL, then run brain-sync again."; exit 1; fi
+remote="$mnt/brain.git"
+
+cd "$BRAIN" || { say "Brain folder missing" "$BRAIN"; exit 1; }
+git rev-parse --git-dir >/dev/null 2>&1 || { say "Not a git repo" "$BRAIN"; exit 1; }
+
+# The stick mounts at a different path on each machine, so (re)point the remote every time.
+if git remote get-url stick >/dev/null 2>&1; then git remote set-url stick "$remote"; else git remote add stick "$remote"; fi
+if [ ! -d "$remote" ]; then
+    git init -q --bare -b main "$remote" && say "Created brain copy on the stick" "$remote"
+fi
+
+# 1. Stage and scan
+git add -A
+if ! git diff --cached --quiet; then
+    if command -v gitleaks >/dev/null 2>&1; then
+        scan=(gitleaks git --staged --redact --no-banner .)
+    elif command -v mise >/dev/null 2>&1 && mise which gitleaks >/dev/null 2>&1; then
+        scan=(mise exec -- gitleaks git --staged --redact --no-banner .)
+    else
+        scan=()
+    fi
+    if [ ${#scan[@]} -gt 0 ]; then
+        if ! "${scan[@]}" >/tmp/brain-sync-scan.$$ 2>&1; then
+            git reset -q
+            say "Sync stopped: possible secret" "gitleaks flagged a staged change. Run: cd ~/Mind && gitleaks git --staged --redact ."
+            rm -f /tmp/brain-sync-scan.$$; exit 1
+        fi
+        rm -f /tmp/brain-sync-scan.$$
+    elif git diff --cached -U0 | grep -qE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_|sk-[A-Za-z0-9_-]{20,}|xox[abp]-|AKIA[0-9A-Z]{16})'; then
+        git reset -q
+        say "Sync stopped: possible secret" "A staged change looks like a key or token (gitleaks not installed, basic check used)."
+        exit 1
+    fi
+    # 2. Commit
+    git commit -q -m "sync: $(hostname)/$USER $(date '+%Y-%m-%d %H:%M')"
+fi
+
+# 3. Bring in the stick's changes
+git fetch -q stick 2>/dev/null
+incoming=0
+if git rev-parse -q --verify stick/main >/dev/null; then
+    incoming=$(git rev-list --count HEAD..stick/main)
+    if ! git rebase -q stick/main >/dev/null 2>&1; then
+        git rebase --abort >/dev/null 2>&1
+        say "Brain sync conflict" "Both machines changed the same lines. Nothing was lost. Ask Claude: 'fix brain sync conflict'."
+        exit 1
+    fi
+fi
+
+# 4. Push back
+outgoing=$(git rev-list --count "stick/main..HEAD" 2>/dev/null || git rev-list --count HEAD)
+if ! git push -q stick HEAD:main 2>/dev/null; then
+    say "Brain sync failed" "Could not write to the stick. Is it read-only or full?"
+    exit 1
+fi
+say "Brain synced" "$incoming change(s) in, $outgoing out."

@@ -1,0 +1,4 @@
+# Append-mostly files: when both machines add lines, keep both sides instead of
+# stopping with a conflict.
+Log/*.md                merge=union
+Memory/**/MEMORY.md     merge=union

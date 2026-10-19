@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# confirm-run: show a job script in a window and run it only if the user says yes.
+# Claude opens this (through confirm-open) for things it's blocked from doing
+# itself: sudo, deny-listed commands, guarded files. The user stays the one who decides.
+#   confirm-run <job-script>
+# The script is copied before it's shown, so what runs is exactly what was on
+# screen even if the original file changes. Writes <job-script>.result for
+# Claude to read: the output plus "exit=<code>", or "cancelled".
+# Uses gum's Yes/No buttons when gum is installed, otherwise a typed y/N prompt.
+set -euo pipefail
+IFS=$'\n\t'
+
+readonly SCRIPT_NAME="${0##*/}"
+# gum draws the Yes/No buttons, so it is only taken from system folders: a fake
+# gum earlier on PATH could otherwise answer yes by itself.
+GUM="$(PATH=/usr/local/bin:/usr/bin:/bin command -v gum || true)"
+set -o noclobber  # the result file is never written through a planted link
+
+die() {
+    echo "$SCRIPT_NAME: $*" >&2
+    read -rp "Press Enter to close" _ || true
+    exit 1
+}
+
+say() {  # say <colour> <text>
+    if [ -n "$GUM" ]; then
+        "$GUM" style --foreground "$1" "$2"
+    else
+        printf '%s\n' "$2"
+    fi
+}
+
+approved() {
+    if [ -n "$GUM" ]; then
+        "$GUM" confirm --affirmative "Yes, run it" --negative "No" "Run this?"
+    else
+        local answer
+        read -rp "Run this? Type y and press Enter to run, anything else cancels: " answer || return 1
+        [ "$answer" = y ] || [ "$answer" = Y ]
+    fi
+}
+
+(( $# == 1 )) || die "usage: $SCRIPT_NAME <job-script>"
+job="$1"
+[ -f "$job" ] || die "no such file: $job"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+cp -- "$job" "$work/job"
+result="$job.result"
+rm -f -- "$result"
+# Recorded in the result, so it's clear exactly which script was approved or refused.
+job_sha=$(sha256sum < "$work/job" | cut -d' ' -f1)
+
+# Refuse anything a terminal could show misleadingly: control characters (escape
+# sequences that erase or hide lines, carriage returns) and non-ASCII (look-alike
+# letters, right-to-left overrides). Job scripts are plain ASCII, so a real one
+# never trips this.
+bad=$(LC_ALL=C grep -n $'[^[:print:]\t]' "$work/job" | cut -d: -f1 | head -5 | tr '\n' ' ' || true)
+if [ -n "$bad" ]; then
+    printf 'cancelled: not plain ASCII (line %s)\njob_sha256=%s\n' "$bad" "$job_sha" > "$result" || true
+    die "refusing: line(s) $bad have control or non-ASCII characters. Job scripts must be plain ASCII, so nothing can hide on screen."
+fi
+
+clear 2>/dev/null || true  # cosmetic; must never stop the script
+lines=$(wc -l < "$work/job")
+rows=$(tput lines 2>/dev/null || echo 24)
+if (( lines + 8 > rows )) && command -v less >/dev/null 2>&1; then
+    # Too long to fit: the top would scroll away before the question. Page it first.
+    say 214 "This job is $lines lines, longer than the window. Read it all, then press q."
+    read -rp "Press Enter to start reading" _ || true
+    less -N -- "$work/job"
+    clear 2>/dev/null || true
+    say 46 "That was the whole job ($lines lines). Nothing happens unless you say yes."
+else
+    say 46 "Claude wants to run this ($lines lines). Nothing happens unless you say yes."
+    echo
+    cat -n -- "$work/job"
+fi
+echo
+if approved; then
+    echo
+    # The job's own failure is reported, not fatal: the user needs to see it.
+    set +e
+    # BASH_ENV/ENV would run a file of the caller's choosing before the job.
+    env -u BASH_ENV -u ENV bash "$work/job" 2>&1 | tee "$work/out"
+    rc=${PIPESTATUS[0]}
+    set -e
+    { cat "$work/out"; echo "exit=$rc"; echo "job_sha256=$job_sha"; } > "$result" \
+        || say 196 "Could not write $result: something else created it first. Not overwriting it."
+    echo
+    if (( rc == 0 )); then say 46 "Done."; else say 196 "Failed (exit $rc)."; fi
+else
+    printf 'cancelled\njob_sha256=%s\n' "$job_sha" > "$result" \
+        || say 196 "Could not write $result: something else created it first. Not overwriting it."
+    say 214 "Cancelled. Nothing was run."
+fi
+read -rp "Press Enter to close" _ || true

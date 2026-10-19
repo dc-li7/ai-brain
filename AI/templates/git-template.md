@@ -1,17 +1,15 @@
 # Git commands:
 
 ## Branch Naming
-Prefixes: `feature|fix|refactor|docs|chore|hotfix|release`
-Format: `<prefix>/<scope>/<desc>` or `hotfix|release/<desc>`
-Regex: `^(feature|fix|refactor|docs|chore)/[a-z0-9._-]+/[a-z0-9._-]+|(hotfix|release)/[a-z0-9._-]+$`
+Prefixes: `feature|fix|refactor|docs|chore|hotfix`
+Format: `<prefix>/<scope>/<desc>`
+Regex: `^(feature|fix|refactor|docs|chore|hotfix)/[a-z0-9._-]+/[a-z0-9._-]+$`
 
-Source branches:
-- `feature/fix/refactor/docs/chore`: from `main`
-- `hotfix`: from `release/x.y.z` or `main`
-- `release`: from `main`
+All work branches start from `main` and come back through a pull request.
+`main`, `master`, `release/*` and `prod/*` are protected: never push to them directly.
 
 ## Commit Format
-`[KEY-123] <type>(<scope>): <summary>`
+`<type>(<scope>): <summary>` (a ticket ID, if the project has one, goes at the end of the summary)
 Types: `feature|fix|refactor|docs|chore|test|build|ci`
 
 ## Commands

@@ -70,7 +70,7 @@ if printf '%s' "$command" \
     | grep -qE "(^|[|&;(\"'\`!\\]|\\\$\(|[[:space:]])[[:space:]]*(/[^[:space:]]*/)?(${ESCALATORS})([[:space:]\"'\\]|$)"
 then
     echo "BLOCKED by sudo-block hook: never escalate privilege from Claude." >&2
-    echo "Hand the command back to the user to run manually:" >&2
+    echo "Hand it to the user with confirm-open instead (see AGENTS.md):" >&2
     echo "  $command" >&2
     exit 2
 fi

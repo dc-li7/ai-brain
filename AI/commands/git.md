@@ -1,6 +1,5 @@
 ---
 description: Git Workflow
-allowed-tools: Bash(git:*)
 argument-hint: [prompt]
 ---
 
@@ -8,7 +7,7 @@ argument-hint: [prompt]
 
 Perform git operations based on [prompt] using Bash git commands.
 
-**Template:** @.claude/templates/git-template.md
+**Template:** read `~/.claude/templates/git-template.md` first (link.sh links it from `AI/templates`).
 
 Follow the template for branch naming conventions, commit message formats, and safety checks.
 
@@ -38,7 +37,7 @@ Which one matches your intent?"
 
 ## Protected Branch Policy
 
-**Refuse to push** directly to: `main`, `master`, `release/*`, `hotfix/*`, `prod/*`
+**Refuse to push** directly to: `main`, `master`, `release/*`, `prod/*` (changes reach them through a pull request)
 
 ## Safety Guards
 
@@ -66,12 +65,12 @@ When merge conflicts occur:
 **Scoped commit:**
 ```
 /git commit the scanner changes
-→ [TICKET-ID] feature(scanner): add channel hopping support
+→ feature(scanner): add channel hopping support
 ```
 
 **Bug fix with ticket:**
 ```
 /git fix rounding bug in signal calc (KEY-451)
 → Branch: fix/scanner/signal-rounding
-→ Commit: [KEY-451] fix(scanner): correct RSSI rounding to nearest dBm
+→ Commit: fix(scanner): correct RSSI rounding to nearest dBm (KEY-451)
 ```

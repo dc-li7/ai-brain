@@ -11,9 +11,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly SCRIPT_NAME="${0##*/}"
-# gum draws the Yes/No buttons, so it is only taken from system folders: a fake
-# gum earlier on PATH could otherwise answer yes by itself.
-GUM="$(PATH=/usr/local/bin:/usr/bin:/bin command -v gum || true)"
+# Only system folders: the window may inherit the caller's PATH, and a fake cat,
+# less or gum earlier on it could show one script while another runs, or answer yes.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+GUM="$(command -v gum || true)"
 set -o noclobber  # the result file is never written through a planted link
 
 die() {
@@ -32,7 +33,8 @@ say() {  # say <colour> <text>
 
 approved() {
     if [ -n "$GUM" ]; then
-        "$GUM" confirm --affirmative "Yes, run it" --negative "No" "Run this?"
+        # No is the default: the window grabs focus, so a stray Enter must not approve.
+        "$GUM" confirm --default=false --affirmative "Yes, run it" --negative "No" "Run this?"
     else
         local answer
         read -rp "Run this? Type y and press Enter to run, anything else cancels: " answer || return 1
@@ -55,21 +57,31 @@ job_sha=$(sha256sum < "$work/job" | cut -d' ' -f1)
 # Refuse anything a terminal could show misleadingly: control characters (escape
 # sequences that erase or hide lines, carriage returns) and non-ASCII (look-alike
 # letters, right-to-left overrides). Job scripts are plain ASCII, so a real one
-# never trips this.
-bad=$(LC_ALL=C grep -n $'[^[:print:]\t]' "$work/job" | cut -d: -f1 | head -5 | tr '\n' ' ' || true)
-if [ -n "$bad" ]; then
+# never trips this. Checked byte by byte with tr: grep's [:print:] differs between
+# GNU grep and ugrep (ugrep calls an em dash or a Cyrillic look-alike "printable").
+if [ "$(LC_ALL=C tr -d '\t\n -~' < "$work/job" | wc -c)" -gt 0 ]; then
+    bad=$(LC_ALL=C awk '/[^\t -~]/ { printf "%d ", NR }' "$work/job" | cut -c1-40)
     printf 'cancelled: not plain ASCII (line %s)\njob_sha256=%s\n' "$bad" "$job_sha" > "$result" || true
     die "refusing: line(s) $bad have control or non-ASCII characters. Job scripts must be plain ASCII, so nothing can hide on screen."
+fi
+# A very long line wraps, and enough wrapping pushes part of the job out of view.
+longest=$(awk '{ if (length > m) m = length } END { print m + 0 }' "$work/job")
+if (( longest >= 300 )); then
+    printf 'cancelled: a line is %s characters\njob_sha256=%s\n' "$longest" "$job_sha" > "$result" || true
+    die "refusing: a line is $longest characters long. Job lines must be under 300 characters, so nothing wraps out of view."
 fi
 
 clear 2>/dev/null || true  # cosmetic; must never stop the script
 lines=$(wc -l < "$work/job")
 rows=$(tput lines 2>/dev/null || echo 24)
-if (( lines + 8 > rows )) && command -v less >/dev/null 2>&1; then
+cols=$(tput cols 2>/dev/null || echo 80)
+# Count screen rows, not lines: cat -n adds 8 columns, and long lines wrap.
+screen_rows=$(fold -w "$(( cols > 20 ? cols - 8 : 12 ))" "$work/job" | wc -l)
+if (( screen_rows + 8 > rows )) && command -v less >/dev/null 2>&1; then
     # Too long to fit: the top would scroll away before the question. Page it first.
     say 214 "This job is $lines lines, longer than the window. Read it all, then press q."
     read -rp "Press Enter to start reading" _ || true
-    less -N -- "$work/job"
+    LESS= LESSOPEN= LESSCLOSE= less -N -- "$work/job"  # LESSOPEN could swap in other text
     clear 2>/dev/null || true
     say 46 "That was the whole job ($lines lines). Nothing happens unless you say yes."
 else
@@ -82,15 +94,23 @@ if approved; then
     echo
     # The job's own failure is reported, not fatal: the user needs to see it.
     set +e
-    # BASH_ENV/ENV would run a file of the caller's choosing before the job.
-    env -u BASH_ENV -u ENV bash "$work/job" 2>&1 | tee "$work/out"
+    # The job gets a clean environment: system folders first on PATH (so a fake sudo
+    # in a user folder can't catch the password), and nothing else inherited, so no
+    # exported functions, BASH_ENV or aliases from the caller.
+    jobenv=(HOME="$HOME" TERM="${TERM:-dumb}" PATH="$PATH:$HOME/.local/bin:$HOME/.local/share/mise/shims")
+    for v in USER LOGNAME LANG DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+        [ -n "${!v:-}" ] && jobenv+=("$v=${!v}")
+    done
+    env -i "${jobenv[@]}" bash --noprofile --norc "$work/job" 2>&1 | tee "$work/out"
     rc=${PIPESTATUS[0]}
     set -e
+    command -v logger >/dev/null 2>&1 && logger -t confirm-run "approved, exit=$rc, job_sha256=$job_sha"
     { cat "$work/out"; echo "exit=$rc"; echo "job_sha256=$job_sha"; } > "$result" \
         || say 196 "Could not write $result: something else created it first. Not overwriting it."
     echo
     if (( rc == 0 )); then say 46 "Done."; else say 196 "Failed (exit $rc)."; fi
 else
+    command -v logger >/dev/null 2>&1 && logger -t confirm-run "cancelled, job_sha256=$job_sha"
     printf 'cancelled\njob_sha256=%s\n' "$job_sha" > "$result" \
         || say 196 "Could not write $result: something else created it first. Not overwriting it."
     say 214 "Cancelled. Nothing was run."

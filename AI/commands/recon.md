@@ -1,6 +1,5 @@
 ---
 description: Security reconnaissance and scanning workflows
-allowed-tools: Bash(nmap:*), Bash(curl -sI:*), Bash(dig:*), Bash(host:*), Bash(openssl s_client:*), Read, Write
 argument-hint: [action or target]
 ---
 

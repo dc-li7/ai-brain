@@ -81,6 +81,26 @@ case "$file_path" in
     # so without these arms the moved files would lose their protection.
     */Mind/AI/hooks/*.sh)           blocked="brain hook script" ;;
     */Mind/AI/setup/*)              blocked="brain setup/sync script" ;;
+    # 2026-10-19 security review: these steer every future session on every
+    # machine, so an injected rewrite would persist. Memory/ and the notes stay
+    # writable on purpose: saving memories is the AI's job.
+    */Mind/AGENTS.md|*/Mind/CLAUDE.md|*/.claude/CLAUDE.md|*/.codex/AGENTS.md)
+                                    blocked="AI rulebook" ;;
+    */Mind/AI/commands/*|*/Mind/AI/agents/*|*/Mind/AI/skills/*|*/Mind/AI/templates/*)
+                                    blocked="brain command, agent or skill" ;;
+    */.claude/commands/*|*/.claude/agents/*|*/.claude/skills/*)
+                                    blocked="claude command, agent or skill" ;;
+    */Mind/.gitattributes)          blocked="brain merge rules" ;;
+    # Obsidian plugins are JavaScript that runs when the vault opens, and a
+    # project .claude/ folder holds hooks that run when Claude starts there.
+    */Mind/.obsidian/plugins/*|*/Mind/.obsidian/community-plugins.json|*/Mind/.claude/*)
+                                    blocked="brain tool config" ;;
+    # git config and hooks can name programs git runs (core.fsmonitor, hooksPath),
+    # and brain-sync runs git unattended on plug-in.
+    */.git/config|*/.git/hooks/*)   blocked="git config or hook" ;;
+    # These decide which programs the AI tools start (MCP servers, Codex sandbox).
+    */.claude.json|*/.mcp.json|*/.codex/config.toml)
+                                    blocked="AI tool config" ;;
     # --- credential files found missing by audit, 2026-08-16 ---
     # why: registry/cluster/token files that hold live credentials in cleartext
     */.docker/config.json)          blocked="docker auth config" ;;
@@ -94,5 +114,5 @@ case "$file_path" in
 esac
 
 echo "BLOCKED by secrets-guard hook: refusing to write $blocked at $file_path" >&2
-echo "If this is intentional, edit the file directly outside Claude Code." >&2
+echo "If this is intentional, hand the change to the user with confirm-open (see AGENTS.md)." >&2
 exit 2

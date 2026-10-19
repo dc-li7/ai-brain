@@ -5,45 +5,41 @@ description: Use this skill whenever a task requires elevated privileges on Linu
 
 # sudo-safe
 
-Environment rule: **Claude never runs `sudo` commands.** The user runs them manually. Your job is to prepare commands cleanly so they can be copied, pasted, and executed without edits.
+Environment rule: **Claude never runs `sudo` commands itself.** The user approves and runs them. Your job is to hand them over in a way the user can read, approve with one click, and that Claude can check afterwards.
 
 ## Why this matters
 
-This rule isn't about safety paranoia — it's workflow hygiene. When Claude runs sudo, prompts can hang, passwords may be required in unexpected places, and side effects land in a context Claude can't fully observe. Manual execution keeps the root-blast-radius human-supervised and keeps Claude's execution loop deterministic.
+When Claude runs sudo, prompts can hang, passwords end up in odd places, and side effects land in a context Claude can't fully observe. Keeping root actions behind a human decision keeps the blast radius human-supervised. The approval window (`confirm-open`) keeps that decision with the user without making them copy and paste.
 
 ## How to respond
 
-When you detect a task that needs elevated privileges:
+When you detect a task that needs elevated privileges, or anything else you're blocked from (a deny-listed command, a guarded file):
 
-1. **Do not attempt to run the command.** No `Bash` calls with `sudo`. No workarounds like `echo password | sudo -S`. No writing a script that internally calls sudo and then running the script.
+1. **Don't run it yourself.** No `Bash` calls with `sudo`, no `echo password | sudo -S`, no other workaround.
+2. **Write a job script** with the Write tool (not with Bash: the sudo-block hook stops any Bash line containing the word). Put it somewhere with a plain path, such as your scratchpad.
+   - Top comments: why, in plain words, one line per step. That's what the user reads first.
+   - `set -euo pipefail`, then the commands.
+   - **Plain ASCII only, lines under 300 characters.** confirm-run refuses anything else, because control characters, non-ASCII and very long lines can hide text on screen.
+   - **If the job installs or copies files,** check their sha256 fingerprints first (`sha256sum --check` with the sums written into the job). The window shows the job, not the files it copies, so the fingerprints are what make sure the files installed are the ones you tested.
+3. **Run `confirm-open <job-script>`.** A window shows the job; nothing runs unless the user picks Yes, and sudo asks for the password right there.
+4. **Tell the user** what the window does in one or two lines, then wait for them to say they're done. Don't poll.
+5. **Read `<job-script>.result`:** the output plus `exit=N`, or `cancelled`, and the job's `job_sha256`. Then check that the change actually landed.
 
-2. **Emit a single fenced bash block** containing only the commands the user should run. Keep it copy-paste clean:
-
-   ```bash
-   sudo pacman -Syu
-   sudo systemctl restart nginx
-   ```
-
-3. **Above the block, one line per command explaining *why*.** Not what — why. The user can read the command; they want context on the intent.
-
-4. **Below the block, state what you'll do once they confirm it ran.** For example: "Once that completes, tell me and I'll verify the service came up."
+If `confirm-open` isn't installed on this machine, fall back to a single fenced bash block the user can copy, with the same one-line-per-step why above it.
 
 ## Template
 
-```
-You'll need to run these yourself — I don't run sudo in your env.
-
-**Why:**
-- `pacman -Syu` — sync repos + upgrade; needed before installing the new package so we don't pull mismatched deps.
-- `systemctl restart nginx` — pick up the new config we just edited.
-
 ```bash
-sudo pacman -Syu
-sudo systemctl restart nginx
+#!/usr/bin/env bash
+# Install nginx so we can serve the static build we just produced,
+# then start it now and on every boot.
+set -euo pipefail
+sudo pacman -S --needed nginx
+sudo systemctl enable --now nginx
+systemctl is-active nginx
 ```
 
-Let me know when it's done and I'll check status.
-```
+Then: "A window is open to install and start nginx. Pick Yes, type your password, and tell me when it's done. I'll check the site comes up."
 
 ## Detection heuristics
 
@@ -60,33 +56,20 @@ Trigger this skill when you notice any of:
 - `modprobe`, `insmod`, `rmmod`
 - `virsh {start,destroy,define,undefine}`, `docker` daemon ops (socket perms), `podman system` global ops
 
-If uncertain whether a command needs sudo, default to treating it as elevated and emit the copy-paste block.
+If uncertain whether a command needs sudo, default to treating it as elevated and hand it over the same way.
 
 ## Edge cases
 
 - **Already-elevated shell**: Don't assume any shell you spawn is privileged.
 - **Passwordless sudoers entries**: Irrelevant — still don't run sudo. The rule is about workflow separation, not auth capability.
 - **Read-only elevated commands** (e.g., `sudo journalctl -u foo`, `sudo ss -tlnp`): Still hand these to the user. Consistency over per-command carve-outs.
-- **Multi-step operations where later steps depend on earlier sudo output**: Emit the sudo block, pause, and ask the user to paste the output back. Don't try to guess what it said.
-- **Service edits needing `systemctl daemon-reload`**: Include the reload + restart in the same block so the user runs them together.
+- **Multi-step operations where later steps depend on earlier sudo output**: put the first part in one job, read its `.result`, then write the next job. Don't guess what it said.
+- **Service edits needing `systemctl daemon-reload`**: put the reload and restart in the same job so they run together.
 
 ## What good looks like
 
-**Bad:**
-```
-I'll install nginx for you.
-```
-*(then runs `sudo pacman -S nginx`)*
+**Bad:** "I'll install nginx for you." *(then runs `sudo pacman -S nginx`)*
 
-**Good:**
-```
-I can't run sudo in your env — paste this when you're ready:
+**Also bad:** a fenced block for the user to copy and paste, when `confirm-open` is installed.
 
-**Why:** installing nginx so we can serve the static build we just produced.
-
-```bash
-sudo pacman -S nginx
-```
-
-Once installed, let me know and I'll configure the site.
-```
+**Good:** a job script with the why in its comments, `confirm-open` on it, one line telling the user what the window does, and a check of the `.result` afterwards.

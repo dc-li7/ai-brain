@@ -42,12 +42,11 @@ if ! git diff --cached --quiet; then
         scan=()
     fi
     if [ ${#scan[@]} -gt 0 ]; then
-        if ! "${scan[@]}" >/tmp/brain-sync-scan.$$ 2>&1; then
+        if ! "${scan[@]}" >/dev/null 2>&1; then
             git reset -q
             say "Sync stopped: possible secret" "gitleaks flagged a staged change. Run: cd ~/Mind && gitleaks git --staged --redact ."
-            rm -f /tmp/brain-sync-scan.$$; exit 1
+            exit 1
         fi
-        rm -f /tmp/brain-sync-scan.$$
     elif git diff --cached -U0 | grep -qE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_|sk-[A-Za-z0-9_-]{20,}|xox[abp]-|AKIA[0-9A-Z]{16})'; then
         git reset -q
         say "Sync stopped: possible secret" "A staged change looks like a key or token (gitleaks not installed, basic check used)."

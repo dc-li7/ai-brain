@@ -51,7 +51,7 @@ bash AI/hooks/tests/test-sudo-block.sh      # 27 tests
 
 My real brain never goes to GitHub. `AI/setup/brain-sync` syncs it between my laptop and desktop through a git repo on a USB stick:
 
-1. Stage changes and scan them with gitleaks. If anything looks like a key or token, it stops.
+1. Stage changes and scan them with gitleaks. If anything looks like a key or token, it stops. Without gitleaks it falls back to a short list of common key patterns, so install gitleaks.
 2. Commit.
 3. Rebase onto the stick's copy. On a conflict it aborts, so nothing is half done.
 4. Push back to the stick. It never force-pushes.

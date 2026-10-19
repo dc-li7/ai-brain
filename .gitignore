@@ -1,0 +1,28 @@
+# Obsidian's per-machine window layout and caches
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+.trash/
+
+# Secrets never belong here (belt and braces on top of the gitleaks scan)
+.env
+.env.*
+*.env
+.envrc
+.credentials.json
+auth.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+
+# Build and runtime junk
+__pycache__/
+*.pyc
+.venv/
+*.log
+*.sqlite
+*.sqlite-*

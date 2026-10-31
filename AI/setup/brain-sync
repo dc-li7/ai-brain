@@ -39,6 +39,15 @@ say() {  # say <title> [body]
     command -v notify-send >/dev/null 2>&1 && notify-send -a "Brain" "$1" "${2:-}" || true
 }
 
+# Global and system git config, and GIT_* variables, can name programs too (a
+# filter.*.clean or diff.*.textconv picked by `* filter=x` in the global attributes
+# runs on `git add`). gitleaks starts its own git outside g(), so cut them off for
+# the whole run: git sees only the brain's own config, which is allowlisted below.
+# That means user.name and user.email must be set in the brain's .git/config
+# (ai-brain issue #4, 2026-10-30).
+for v in $(compgen -e); do [[ $v == GIT_* ]] && unset "$v"; done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+
 # git with the settings that could run a program switched off for this run, since
 # the sync runs unattended. (The repo's own config is also checked below.)
 g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
@@ -97,6 +106,20 @@ elif [ ! -d "$remote" ]; then
     exit 1
 fi
 
+# The stick's own repo is untrusted too. Fetch and push start git inside it
+# (upload-pack, receive-pack), which obey ITS config and run ITS hooks/, and neither
+# is in the history the review gate checks. So its config gets an allowlist like the
+# brain's, and the push below runs receive-pack with hooks off (found 2026-10-31).
+if ! scfg=$(g config --file "$remote/config" --name-only --list 2>/dev/null); then
+    say "Sync stopped: can't read the stick's git config" "Check $remote/config"
+    exit 1
+fi
+sunexpected=$(printf '%s\n' "$scfg" | grep -vE '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks)|)$' | sort -u || true)
+if [ -n "$sunexpected" ]; then
+    say "Sync stopped: unexpected git settings on the stick" "The stick's $remote/config sets: $(echo "$sunexpected" | tr '\n' ' '). Some settings make git run programs. Nothing was changed."
+    exit 1
+fi
+
 # gitleaks 8.19+ (the `git` subcommand). Older versions fall back to the basic check.
 gl=()
 if command -v gitleaks >/dev/null 2>&1; then gl=(gitleaks)
@@ -125,7 +148,7 @@ reindex() {
 }
 commit() {  # commit <message>
     if ! g commit -q -m "$1"; then
-        say "Sync stopped: commit failed" "Nothing was pushed. If git doesn't know who you are yet: git -C $BRAIN config user.name 'Your Name' && git -C $BRAIN config user.email you@example.com"
+        say "Sync stopped: commit failed" "Nothing was pushed. If git doesn't know who you are yet (brain-sync ignores the global git config): git -C $BRAIN config user.name 'Your Name' && git -C $BRAIN config user.email you@example.com"
         exit 1
     fi
 }
@@ -228,7 +251,7 @@ if [ "$outgoing" -gt 0 ]; then
         exit 1
     fi
 fi
-if ! g push -q stick HEAD:main 2>/dev/null; then
+if ! g push -q --receive-pack='git -c core.hooksPath=/dev/null receive-pack' stick HEAD:main 2>/dev/null; then
     say "Brain sync failed" "Could not write to the stick. Is it read-only or full?"
     exit 1
 fi

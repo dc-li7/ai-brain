@@ -82,6 +82,52 @@ BRAIN_DIR="$E/a" python3 -I "$E/a/AI/setup/memory-index" >/dev/null 2>&1; rc=$?
 check "memory-index refuses to write through a symlink" '[ $rc -ne 0 ] && cmp -s "$E/a/AI/setup/link.sh" "$E/link.before"'
 git -C "$E/a" checkout -q -- Memory/main/MEMORY.md
 
+# Attack: global git config and attributes (ai-brain issue #4). A clean filter, a diff
+# textconv and an fsmonitor, all from the global files. gitleaks runs its own git, so
+# this also covers the secret scans, not just g().
+mkdir -p "$E/evilhome/.config/git"
+printf '#!/bin/sh\ntouch "%s/G_CLEAN"\ncat\n' "$E" > "$E/stub/evil-clean"
+printf '#!/bin/sh\ntouch "%s/G_TEXTCONV"\ncat "$1"\n' "$E" > "$E/stub/evil-textconv"
+printf '#!/bin/sh\ntouch "%s/G_FSMON"\n' "$E" > "$E/stub/evil-fsmon"
+chmod +x "$E/stub/evil-clean" "$E/stub/evil-textconv" "$E/stub/evil-fsmon"
+printf '[filter "x"]\n\tclean = %s\n[diff "x"]\n\ttextconv = %s\n[core]\n\tfsmonitor = %s\n' \
+    "$E/stub/evil-clean" "$E/stub/evil-textconv" "$E/stub/evil-fsmon" > "$E/evilhome/.gitconfig"
+echo '* filter=x diff=x' > "$E/evilhome/.config/git/attributes"
+evil=(env HOME="$E/evilhome" XDG_CONFIG_HOME="$E/evilhome/.config")
+nomarks() { [ ! -e "$E/G_CLEAN" ] && [ ! -e "$E/G_TEXTCONV" ] && [ ! -e "$E/G_FSMON" ]; }
+echo "global" > "$E/a/Inbox/g.md"
+"${evil[@]}" git -C "$E/a" add -A 2>/dev/null; git -C "$E/a" reset -q
+check "control: the planted global filter runs under plain git" '[ -e "$E/G_CLEAN" ]'
+rm -f "$E/G_CLEAN" "$E/G_TEXTCONV" "$E/G_FSMON"
+out=$("${evil[@]}" BRAIN_DIR="$E/a" BRAIN_STICK_DIR="$E/stick" bash "$E/a/AI/setup/brain-sync" 2>&1)
+check "global git config runs nothing during sync (add, scans, commit, push)" '[[ $out == *"Brain synced"* ]] && nomarks'
+# The same settings passed in through GIT_CONFIG_COUNT environment variables.
+echo "env" > "$E/a/Inbox/e.md"
+genv=(env GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=filter.x.clean GIT_CONFIG_VALUE_0="$E/stub/evil-clean"
+      GIT_CONFIG_KEY_1=core.attributesFile GIT_CONFIG_VALUE_1="$E/evilhome/.config/git/attributes")
+"${genv[@]}" git -C "$E/a" add -A 2>/dev/null; git -C "$E/a" reset -q
+check "control: GIT_CONFIG_COUNT settings run under plain git" '[ -e "$E/G_CLEAN" ]'
+rm -f "$E/G_CLEAN" "$E/G_TEXTCONV" "$E/G_FSMON"
+out=$("${genv[@]}" BRAIN_DIR="$E/a" BRAIN_STICK_DIR="$E/stick" bash "$E/a/AI/setup/brain-sync" 2>&1)
+check "GIT_* environment settings run nothing during sync" '[[ $out == *"Brain synced"* ]] && nomarks'
+
+# Attack: hooks planted in the stick's own repo. They live outside the history, so the
+# review gate never sees them, and receive-pack runs them on every push.
+for h in pre-receive update post-receive post-update reference-transaction; do
+    printf '#!/bin/sh\ntouch "%s/S_HOOK"\ncat >/dev/null\nexit 0\n' "$E" > "$E/stick/brain.git/hooks/$h"
+    chmod +x "$E/stick/brain.git/hooks/$h"
+done
+git clone -q "$E/stick/brain.git" "$E/d"; echo "from d" > "$E/d/Inbox/d.md"
+git -C "$E/d" add Inbox; git -C "$E/d" -c user.email=d@e -c user.name=d commit -qm d; git -C "$E/d" push -q origin HEAD:main 2>/dev/null
+check "control: hooks on the stick run on a plain push" '[ -e "$E/S_HOOK" ]'
+rm -f "$E/S_HOOK"; echo "hooks" > "$E/a/Inbox/h.md"
+out=$(sync "$E/a"); check "hooks on the stick do NOT run during sync" '[[ $out == *"Brain synced"* ]] && [ ! -e "$E/S_HOOK" ] && [ -f "$E/a/Inbox/d.md" ]'
+rm -f "$E/stick/brain.git/hooks/"{pre-receive,update,post-receive,post-update,reference-transaction}
+# Attack: a setting in the stick's own config.
+git -C "$E/stick/brain.git" config core.alternateRefsCommand "touch $E/S_ALT"
+out=$(sync "$E/a"); check "a setting in the stick's config refuses the sync" '[[ $out == *"unexpected git settings on the stick"* ]] && [ ! -e "$E/S_ALT" ]'
+git -C "$E/stick/brain.git" config --unset core.alternateRefsCommand
+
 # Secret committed by hand, outside brain-sync.
 printf 'token = ghp_%s\n' "aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5" > "$E/a/Inbox/leak.md"
 git -C "$E/a" add Inbox/leak.md; git -C "$E/a" commit -qm "by hand"

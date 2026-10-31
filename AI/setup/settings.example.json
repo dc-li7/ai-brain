@@ -3,6 +3,8 @@
     "deny": [
       "Bash(sudo:*)",
       "Bash(/usr/bin/sudo:*)",
+      "Bash(sudoedit:*)",
+      "Bash(/usr/bin/sudoedit:*)",
       "Bash(su:*)",
       "Bash(/bin/su:*)",
       "Bash(/usr/bin/su:*)",

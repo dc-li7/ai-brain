@@ -98,6 +98,12 @@ case "$file_path" in
     # git config and hooks can name programs git runs (core.fsmonitor, hooksPath),
     # and brain-sync runs git unattended on plug-in.
     */.git/config|*/.git/hooks/*)   blocked="git config or hook" ;;
+    # The same goes for the global config and attributes, and a repo's .git/info:
+    # a global filter.*.clean plus `* filter=x` runs on brain-sync's `git add`
+    # (ai-brain issue #4, 2026-10-30). brain-sync now ignores global config itself;
+    # this arm is the seatbelt for every other repo.
+    */.gitconfig|*/.config/git/*|*/.git/info/*)
+                                    blocked="git config or attributes" ;;
     # These decide which programs the AI tools start (MCP servers, Codex sandbox).
     */.claude.json|*/.mcp.json|*/.codex/config.toml)
                                     blocked="AI tool config" ;;

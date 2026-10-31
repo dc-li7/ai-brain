@@ -38,8 +38,8 @@ Lead with the recommendation, keep the alternatives short.
 
 | Hook | Runs before | What it does |
 |---|---|---|
-| `secrets-guard.sh` | Write, Edit | Blocks writes to files that look like secrets: `.env`, SSH keys, `.pem`, `.netrc` and more. It also blocks edits to the files that steer the AI: its settings, the hooks, the rulebooks, commands, agents, skills, git's config and the MCP and Codex config. Memories and notes stay writable, because saving memories is the AI's job. |
-| `sudo-block.sh` | Bash | Blocks sudo, su, doas, pkexec, run0, machinectl and systemd-run, and tells the AI to use the approval window instead. |
+| `secrets-guard.sh` | Write, Edit | Blocks writes to files that look like secrets: `.env`, SSH keys, `.pem`, `.netrc` and more. It also blocks edits to the files that steer the AI: its settings, the hooks, the rulebooks, commands, agents, skills, git's config (the repo's and the global one, plus attributes) and the MCP and Codex config. Memories and notes stay writable, because saving memories is the AI's job. |
+| `sudo-block.sh` | Bash | Blocks sudo, sudoedit, su, doas, pkexec, run0, machinectl and systemd-run, and tells the AI to use the approval window instead. |
 | `webfetch-warning.sh` | WebFetch | Tells the AI the page it's about to read is untrusted, so instructions inside it get flagged instead of followed. |
 
 ## Approval window
@@ -66,14 +66,14 @@ My real brain never goes to GitHub. `AI/setup/brain-sync` syncs it between my la
 
 Why the gate in step 2: the stick is a plain USB drive, and on my laptop the sync runs on its own when I plug it in. Without the gate, anyone who had the stick for a few minutes could plant code that runs on both machines with no click from me.
 
-It also refuses to run if the brain's git config holds anything beyond a short list of harmless settings (many git settings make it run a program), turns git hooks off for its own run, never sets up a new stick by itself (`brain-sync --init` does that, once), and installs a `pre-push` hook so the brain can't be pushed anywhere except a local path.
+It also refuses to run if the brain's git config holds anything beyond a short list of harmless settings (many git settings make it run a program), and the same goes for the stick's own repo. It ignores the global and system git config and any `GIT_*` variables for the whole run, gitleaks included, so the brain's `.git/config` needs its own `user.name` and `user.email`. It turns git hooks off for its own run, and on the stick's side during the push. It never sets up a new stick by itself (`brain-sync --init` does that, once), and installs a `pre-push` hook so the brain can't be pushed anywhere except a local path.
 
 ## Tests
 
 ```bash
-bash AI/hooks/tests/test-secrets-guard.sh   # 73 tests
-bash AI/hooks/tests/test-sudo-block.sh      # 27 tests
-bash AI/setup/tests/test-brain-sync.sh      # 27 tests: two fake machines, a fake stick, and the attacks
+bash AI/hooks/tests/test-secrets-guard.sh   # 77 tests
+bash AI/hooks/tests/test-sudo-block.sh      # 30 tests
+bash AI/setup/tests/test-brain-sync.sh      # 34 tests: two fake machines, a fake stick, and the attacks
 bash AI/setup/tests/test-confirm-run.sh     # 14 tests: the real Yes/No prompt in a pseudo-terminal
 ```
 
@@ -113,6 +113,10 @@ Inbox/ Projects/ Knowledge/ Log/ Machines/ Archive/ Templates/   notes for peopl
 7. The stick: label a USB drive `BRAIN-STICK` (or set `BRAIN_STICK_LABEL`), plug it in, and run `brain-sync --init` once, then `brain-sync`. On your second machine, clone from the stick, not from GitHub, so both share the same history:
    ```bash
    git clone /run/media/$USER/BRAIN-STICK/brain.git ~/Mind
+   ```
+   On each machine, give the brain its own git identity, because `brain-sync` ignores the global one:
+   ```bash
+   git -C ~/Mind config user.name "Your Name" && git -C ~/Mind config user.email you@example.com
    ```
    Running the sync on plug-in is optional. I use an event hook in my USB automounter (udiskie); it isn't part of this repo.
 

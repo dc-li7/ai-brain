@@ -40,6 +40,8 @@ fi
 # Escalation binaries, matched as whole tokens and tolerant of a leading path.
 #
 #   sudo doas pkexec  — the usual three
+#   sudoedit          — installed with sudo, edits a root-owned file; `sudo` followed
+#                       by `e` slipped the token match (ai-brain issue #5, 2026-10-30)
 #   run0              — systemd's newer sudo replacement, ships on Arch
 #   su                — still an escalation, still worth handing back
 #   machinectl        — `machinectl shell` gives a root shell in a container/host
@@ -47,7 +49,7 @@ fi
 #
 # The leading (/[^[:space:]]*/)? is the fix for the path-qualified bypass: it
 # consumes /usr/bin/ before the token so /usr/bin/sudo matches exactly as sudo does.
-ESCALATORS='sudo|doas|pkexec|run0|su|machinectl|systemd-run'
+ESCALATORS='sudo|sudoedit|doas|pkexec|run0|su|machinectl|systemd-run'
 
 # Preceded by: start of string, whitespace, or a shell metacharacter that begins a
 # new command context (pipe, and/or, semicolon, newline, subshell, command

@@ -42,6 +42,11 @@ check block 'pkexec id'
 check block 'run0 id'
 check block 'machinectl shell root@'
 check block 'systemd-run --uid=0 /bin/sh'
+# ai-brain issue #5 (2026-10-30): sudoedit is its own binary, so `sudo` was followed
+# by `e` and the token match missed it.
+check block 'sudoedit /etc/hosts'
+check block '/usr/bin/sudoedit /etc/fstab'
+check block 'bash -c "sudoedit /etc/hosts"'
 
 echo "--- must block: escalation after a shell operator ---"
 check block 'echo hi && sudo id'

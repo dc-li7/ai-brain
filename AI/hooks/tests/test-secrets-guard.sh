@@ -254,6 +254,10 @@ for _policy_file in \
     "$HOME/Mind/.git/config" \
     "$HOME/Mind/.git/hooks/pre-push" \
     /home/alice/projects/myapp/.git/config \
+    "$HOME/.gitconfig" \
+    "$HOME/.config/git/config" \
+    "$HOME/.config/git/attributes" \
+    "$HOME/Mind/.git/info/attributes" \
     "$HOME/.claude.json" \
     /home/alice/projects/myapp/.mcp.json \
     "$HOME/.codex/config.toml" \

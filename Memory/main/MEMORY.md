@@ -1,9 +1,5 @@
 # Memory Index
 
-_Built from the memory files by AI/setup/memory-index on every brain-sync. ★ = pinned. Lines added by hand are fine; the next sync rebuilds them from the files._
+_Built by AI/setup/memory-index on every brain-sync; don't edit by hand. This index is a tree: the pinned memories (★) are below, then one line per topic. Open a topic file (index/…) to see its memories, one line each, and its sub-topics. To file a new memory, put `topic: <slug>` under `metadata:` in its frontmatter (the topic list is TOPICS.md); without one it is listed under "No topic yet" below. Searching the memory folder finds any memory directly._
 
-## Feedback
-- [feedback-plain-language.md](feedback-plain-language.md) — Explain changes in plain words with one recommendation, not a survey of every option
-
-## Reference
-- [reference-hook-tests.md](reference-hook-tests.md) — The guard hooks have regression tests in AI/hooks/tests; run them after any change to a hook
+## Topics

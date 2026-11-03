@@ -20,16 +20,68 @@ There are four parts.
 
 The index is rebuilt from the memory files on every sync (`AI/setup/memory-index`), sorted the same way on every machine: pinned first, then by type, then by name. I added that after finding my index had drifted. It had lines for memories that didn't exist anymore, and when two machines edited it at the same time, git kept both versions of a line, so it slowly filled with duplicates. Now the files are the only source and the index can't disagree with them.
 
+Then the index got too big. At about 100 memories my `MEMORY.md` was 17 KB, and every session loaded all of it up front, even when the task needed two memories. So now it's a tree. `TOPICS.md` lists the topics, one line each with a short summary, and every memory names its topic with a `topic:` line. `MEMORY.md` keeps the pinned memories and one line per topic with a count. Each topic gets its own generated file under `index/` that lists its memories, and sub-topics nest as folders (`index/garden/tomatoes.md`). Mine went from 17 KB to 3.4 KB, which is roughly 4,000 tokens down to under 1,000, and that cost gets paid at the start of every session. The AI reads the topic summaries and opens only the branch it needs, a few hundred tokens more and only when the task calls for it. A memory with no topic yet is still listed right in `MEMORY.md`, so a new one never goes missing. `memory-index` only ever overwrites or deletes files it made itself, and a memory folder without a `TOPICS.md` keeps the flat index.
+
 ```markdown
 ---
 name: feedback-plain-language
 description: Explain changes in plain words with one recommendation
 metadata:
   type: feedback
+  topic: me
 ---
 Lead with the recommendation, keep the alternatives short.
 **Why:** ...
 **How to apply:** ...
+```
+
+Here's a small made-up brain so you can see the index working. It isn't mine. It belongs to somebody who gardens, rides a road bike and bakes bread, and it has eight memories.
+
+```
+Memory/main/
+  TOPICS.md                 the topic list, written by hand
+  MEMORY.md                 generated: pinned memories + one line per topic
+  index/
+    garden.md               generated, one file per topic
+    garden/tomatoes.md      a sub-topic
+    bike.md
+    kitchen.md
+    unsorted.md             memories that don't have a topic yet
+  metric-units.md           the memories, one fact per file
+  sourdough-starter.md
+  tomato-blight.md
+  ...
+```
+
+`MEMORY.md` is the only part that gets loaded every session:
+
+```markdown
+# Memory Index
+
+_Built by AI/setup/memory-index on every brain-sync; don't edit by hand. …_
+
+## Pinned
+- ★ [metric-units.md](metric-units.md) — Give every measurement in metric
+
+## Topics
+- [garden](index/garden.md) — Raised beds, watering, what grew well (3) · sub-topics: tomatoes
+- [bike](index/bike.md) — Road bike fit, tire pressure, the commute (1)
+- [kitchen](index/kitchen.md) — Sourdough, knives, meal prep (3)
+
+## No topic yet (1)
+- [compost-bin.md](compost-bin.md) — Second compost bin ordered, arrives next week
+```
+
+Ask it "why have my tomatoes gone bad?" and it opens `index/garden.md`, then the tomatoes sub-topic, then the one memory it needs. The bike and kitchen memories never get loaded.
+
+```markdown
+# garden/tomatoes
+
+_Varieties, blight, staking. Up: [garden](../garden.md). …_
+
+## Memories
+- [tomato-blight.md](../../tomato-blight.md) — Early blight hit the Roma plants in July: water the base, not the leaves
+- [tomato-varieties.md](../../tomato-varieties.md) — Sungold and San Marzano did best; skip Brandywine in the shady bed
 ```
 
 **3. Skills and agents: `AI/`.** Skills are step-by-step playbooks for jobs I repeat, in the open `SKILL.md` format. The AI loads one only when the task matches its description. Agents are role definitions (architect, coder, security auditor and so on) that work together as teams.
@@ -61,7 +113,7 @@ My real brain never goes to GitHub. `AI/setup/brain-sync` syncs it between my la
 
 1. Rebuild the memory indexes, stage changes, scan them with gitleaks, commit.
 2. Fetch the stick's copy. **If it changes code, rules or tool config** (`AI/`, `AGENTS.md`, `CLAUDE.md`, `.claude/`, Obsidian plugins, `.mcp.json`, git's own files and a few more), or adds a symlink anywhere, stop and apply nothing until I run `brain-sync --review`, read every changed line, and type `yes`. Memories and notes sync without asking.
-3. Rebase onto the stick's copy. On a conflict it aborts, so nothing is half done. Then rebuild the indexes again, in case the other machine added memories.
+3. Rebase onto the stick's copy. On a conflict it aborts, so nothing is half done. Then rebuild the indexes again, in case the other machine added memories, and commit the rebuild.
 4. Scan every commit about to leave with gitleaks, including ones made outside `brain-sync`, then push. It never force-pushes.
 
 Why the gate in step 2: the stick is a plain USB drive, and on my laptop the sync runs on its own when I plug it in. Without the gate, anyone who had the stick for a few minutes could plant code that runs on both machines with no click from me.
@@ -73,7 +125,8 @@ It also refuses to run if the brain's git config holds anything beyond a short l
 ```bash
 bash AI/hooks/tests/test-secrets-guard.sh   # 77 tests
 bash AI/hooks/tests/test-sudo-block.sh      # 30 tests
-bash AI/setup/tests/test-brain-sync.sh      # 34 tests: two fake machines, a fake stick, and the attacks
+bash AI/setup/tests/test-brain-sync.sh      # 37 tests: two fake machines, a fake stick, and the attacks
+bash AI/setup/tests/test-memory-index.sh    # 16 tests: the topic tree, and the files it must never touch
 bash AI/setup/tests/test-confirm-run.sh     # 14 tests: the real Yes/No prompt in a pseudo-terminal
 ```
 
@@ -85,7 +138,7 @@ Many of the cases came from reviews that found real problems. The first version 
 AGENTS.md              rules every AI reads
 CLAUDE.md              @AGENTS.md, plus anything Claude-only
 Home.md                start page for me (Obsidian)
-Memory/main/           one fact per file, MEMORY.md is the index
+Memory/main/           one fact per file; MEMORY.md and index/ are the index, TOPICS.md the topic list
 AI/
   skills/              playbooks: pre-ship review, secrets, sudo, CTF, bash, python tools...
   agents/              code-team, security-audit-team, bughunt-team

@@ -31,6 +31,15 @@ printf -- '---\nname: b1\ndescription: From B\nmetadata:\n  type: user\n---\nb\n
 out=$(sync "$E/b"); check "memory-only change syncs without review" '[[ $out == *"Brain synced"* ]]'
 out=$(sync "$E/a"); check "a receives b's memory" '[ -f "$E/a/Memory/main/b1.md" ] && grep -q b1.md "$E/a/Memory/main/MEMORY.md"'
 
+# Topic tree: both machines file a memory under the same topic. The rebase unions
+# index/me.md, and the rebuild after it has to be committed too, not left behind.
+printf -- '---\nname: a2\ndescription: From A\nmetadata:\n  type: user\n  topic: me\n---\na\n' > "$E/a/Memory/main/a2.md"
+printf -- '---\nname: b2\ndescription: From B\nmetadata:\n  type: user\n  topic: me\n---\nb\n' > "$E/b/Memory/main/b2.md"
+out=$(sync "$E/b"); out=$(sync "$E/a")
+check "same topic on both machines: merged, rebuilt and committed" '[[ $out == *"Brain synced"* ]] && [ -z "$(git -C "$E/a" status --porcelain)" ] && git -C "$E/stick/brain.git" show main:Memory/main/index/me.md | grep -q a2.md && git -C "$E/stick/brain.git" show main:Memory/main/index/me.md | grep -q b2.md'
+check "the index on the stick matches the memory files" '[ -z "$(BRAIN_DIR="$E/a" python3 -I "$E/a/AI/setup/memory-index" --check 2>/dev/null)" ]'
+out=$(sync "$E/b"); check "b receives a's memory in the tree" 'grep -q a2.md "$E/b/Memory/main/index/me.md" && [ -z "$(git -C "$E/b" status --porcelain)" ]'
+
 # Attack: someone with the stick plants code in memory-index.
 printf 'import pathlib; pathlib.Path("%s/PWNED").write_text("x")\n' "$E" >> "$E/b/AI/setup/memory-index"
 git -C "$E/b" commit -qam "innocent looking"; git -C "$E/b" push -q origin HEAD:main

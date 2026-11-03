@@ -136,9 +136,11 @@ basic_check() {  # stdin: a diff. Exit 0 if it looks like it holds a key or toke
 }
 
 # Each Memory/<scope>/MEMORY.md is rebuilt from the memory files (AI/setup/memory-index),
-# so every machine produces the same index and it can't drift from the files.
-# .gitattributes merges MEMORY.md with merge=union so it never stops a rebase; the
-# rebuild after the rebase then clears out any duplicate lines the union left.
+# so every machine produces the same index and it can't drift from the files. A scope
+# with a TOPICS.md also gets one generated file per topic under Memory/<scope>/index/.
+# .gitattributes merges MEMORY.md and the topic files with merge=union so they never
+# stop a rebase; the rebuild after the rebase then clears out any duplicate lines the
+# union left.
 # An index problem never blocks a sync; it raises a notification instead.
 reindex() {
     local err
@@ -230,8 +232,11 @@ if g rev-parse -q --verify stick/main >/dev/null; then
         exit 1
     fi
     reindex
-    if ! g diff --quiet --no-ext-diff -- 'Memory/*/MEMORY.md'; then
-        g add -- 'Memory/*/MEMORY.md' && commit "sync: rebuild memory index"
+    # Step 1 committed everything, so whatever changed under Memory/ now is the
+    # rebuild: MEMORY.md, plus topic files it added, changed or deleted under index/.
+    # (Checking MEMORY.md alone left the topic files uncommitted until the next sync.)
+    if [ -n "$(g status --porcelain -- Memory)" ]; then
+        g add -A -- Memory && commit "sync: rebuild memory index"
     fi
 fi
 

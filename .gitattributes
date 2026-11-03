@@ -2,3 +2,4 @@
 # stopping with a conflict.
 Log/*.md                merge=union
 Memory/**/MEMORY.md     merge=union
+Memory/**/index/**/*.md merge=union

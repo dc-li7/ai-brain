@@ -37,7 +37,7 @@ Every AI that works with me reads this file: Claude Code, Codex, and anything ad
 Details: the project memories in `Memory/main`, and `Projects/`.
 
 ## The brain
-- **`Memory/`**: what AIs have learned, one fact per file with frontmatter. `Memory/main/MEMORY.md` is the index. Claude loads it by itself (`autoMemoryDirectory`); **any other tool reads it at the start of a session**, then opens the memories that matter for the task.
+- **`Memory/`**: what AIs have learned, one fact per file with frontmatter. `Memory/main/MEMORY.md` is the index: the pinned memories, then one line per topic pointing to `index/<topic>.md`. Claude loads it by itself (`autoMemoryDirectory`); **any other tool reads it at the start of a session**, then opens the topic files and memories that matter for the task.
 - **`AI/`**: skills (`AI/skills/*/SKILL.md`, the open Agent Skills format), agents, commands, hooks and setup scripts. The same files are used by every tool on every machine.
 - **Notes for people:** `Home.md` (start page), `Inbox/`, `Projects/`, `Knowledge/`, `Log/` (one note per day, `YYYY-MM-DD.md`), `Machines/`, `Archive/`, `Templates/`.
 - **Note style:** short and scannable, `[[wikilinks]]` by unique note name, dates as `YYYY-MM-DD`, and no H1 (Obsidian shows the file name).
@@ -46,7 +46,7 @@ Details: the project memories in `Memory/main`, and `Projects/`.
 1. Add a line to today's note in `Log/`: `- What happened. [[Project]]`
 2. Update the project note: next steps, plus a dated log line.
 3. If a machine changed, update its note in `Machines/`.
-4. If you learned a lasting fact or preference, add a memory file to `Memory/main` and a line to `MEMORY.md`.
+4. If you learned a lasting fact or preference, add a memory file to `Memory/main` with a `topic:` from `Memory/main/TOPICS.md` (add a topic there if none fits). Don't edit `MEMORY.md` or `index/` by hand: `brain-sync` rebuilds them from the memory files.
 
 ## Teams
 Any capable model can play these roles. The full role definitions are in `AI/agents/*.md`.
